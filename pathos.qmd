@@ -1,0 +1,153 @@
+---
+title: "Final Project 260"
+format: html
+editor: visual
+---
+
+```{r}
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(tidytext)
+library(tm)
+```
+
+```{r}
+
+data = read.csv("data.csv")
+
+data %>% select(-Answer) %>% summarize(across(.fns = sum, .cols = everything()))
+
+
+```
+
+```{r}
+
+data <- data %>% mutate(word_count = str_count(Answer, "\\w+"), 
+                       log_word_count = log(word_count))
+data <- data %>% mutate(positive = rowSums(data[, c(8, 11, 13, 15, 16, 18, 19)]) > 0)
+data <- data %>% mutate(negative = rowSums(data[, c(2:7, 9, 10, 12, 14, 17)]) > 0)
+```
+
+```{r}
+hist_word_count <- ggplot(data, aes(x = word_count)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  labs(
+    title = "Word Count Histogram",
+    x = "Value",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+hist_log_word_count <- ggplot(data, aes(x = log_word_count)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  labs(
+    title = "Log Word Count Histogram",
+    x = "Value",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Arrange the histograms side by side
+grid.arrange(hist_word_count, hist_log_word_count, ncol = 2)
+```
+
+```{r}
+tidy_answer <- data %>% 
+  mutate(row_id = row_number()) %>% 
+  select(row_id, Answer) %>% 
+  unnest_tokens(word, Answer)
+```
+
+```{r}
+tidy_answer <- tidy_answer %>% 
+  mutate(word = tolower(word)) %>% 
+  mutate(word = gsub("[[:punct:]]", "", word))
+```
+
+```{r}
+tidy_answer <- tidy_answer %>% anti_join(stop_words)
+```
+
+```{r}
+word_frequencies <- tidy_answer %>%
+  group_by(row_id, word) %>%
+  tally() %>%
+  ungroup()
+```
+
+```{r}
+total_word_frequencies <- word_frequencies %>%
+  group_by(word) %>%
+  summarize(total_frequency = sum(n))
+```
+
+```{r}
+answer_word_frequencies <- ggplot(total_word_frequencies, aes(x = log(total_frequency))) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  labs(
+    title = "Unique Word Frequencies among Text Answers",
+    x = "Unique Word Frequency",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+answer_word_frequencies
+```
+
+```{r}
+threshold <- total_word_frequencies %>% 
+  pull(total_frequency) %>%
+  quantile(0.95)
+
+top_words <- total_word_frequencies %>% 
+  filter(total_frequency >= threshold)
+```
+
+```{r}
+dtm <- tidy_answer %>%
+  filter(word %in% top_words$word) %>% 
+  count(row_id, word) %>%
+  cast_dtm(row_id, word, n)
+
+dtm <- as.matrix(dtm)
+
+cooc_matrix <- t(dtm) %*% dtm
+```
+
+```{r}
+diag(cooc_matrix) <- 0
+cooc_matrix[upper.tri(cooc_matrix)] <- 0
+```
+
+```{r}
+tmp <- rownames(cooc_matrix) <- colnames(cooc_matrix)
+```
+
+```{r}
+ind <- which(cooc_matrix >= threshold, arr.ind = T)
+freqs <- cooc_matrix[ind]
+
+word_pairs <- cbind(tmp[ind[,1]],tmp[ind[,2]],freqs) %>% 
+  as.data.frame()
+colnames(word_pairs) <- c("Word1","Word2","Frequency")
+
+word_pairs <- word_pairs[order(freqs, decreasing = T), ]
+```
+
+```{r}
+Y_positive = data$positive
+X = as.data.frame(cbind(dtm, Y_positive))
+lm1 = glm(Y_positive ~ ., family = "binomial", data = X)
+summary(lm1)
+plot(lm1, which = 1:6)
+```
+
+```{r}
+Y_negative = data$negative
+X = as.data.frame(cbind(dtm, Y_negative))
+lm2 = glm(Y_negative ~ ., family = "binomial", data = X)
+summary(lm2)
+plot(lm2, which = 1:6)
+```
