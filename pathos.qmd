@@ -3,8 +3,17 @@ title: "Final Project 260"
 format: html
 editor: visual
 ---
+## Pathos: Associations of Word Usage and Emotions
 
-```{r}
+### Abstract
+
+In the realm of psychology and neuroscience, understanding human experiences and emotions through text can present a fascinating challenge. In my analysis, I will use a dataset (X. Alice Li and Devi Parikh, 2019) that contains up to 3 entries from 500 participants highlighting salient moments of their day. Additionally, each response is labelled with one of 18 emotions. In my primary analysis, I will use the Apriori Algorithm, a process that finds frequent item associations in a dataset by efficiently sub-setting search candidates. To ensure that only important associations are being mined, I will filter out stop words. Next, I plan to use a penalized regression algorithm to explore a few final word associations and their relationships to labelled emotions through logistic regression. To complete this analysis, I dichotomized the original 18 emotional categories to just two: positive and negative. Ultimately, I hope that the findings of this experiment highlights possible areas for public health intervention.
+
+### Study
+
+First we must import all necessary libraries and the data. Next we can begin an exploratory analysis.
+
+```{r include=FALSE}
 library(stringr)
 library(ggplot2)
 library(dplyr)
@@ -13,16 +22,19 @@ library(tidytext)
 library(tm)
 ```
 
-```{r}
 
+```{r include=FALSE}
+set.seed(2023)
 data = read.csv("data.csv")
 
-data %>% select(-Answer) %>% summarize(across(.fns = sum, .cols = everything()))
 
-
+data %>% 
+  select(-Answer) %>% 
+  summarize(across(.fns = sum, .cols = everything())) %>% 
+  table()
 ```
 
-```{r}
+```{r include=FALSE}
 
 data <- data %>% mutate(word_count = str_count(Answer, "\\w+"), 
                        log_word_count = log(word_count))
@@ -30,7 +42,7 @@ data <- data %>% mutate(positive = rowSums(data[, c(8, 11, 13, 15, 16, 18, 19)])
 data <- data %>% mutate(negative = rowSums(data[, c(2:7, 9, 10, 12, 14, 17)]) > 0)
 ```
 
-```{r}
+```{r echo=FALSE}
 hist_word_count <- ggplot(data, aes(x = word_count)) +
   geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
   labs(
@@ -53,37 +65,37 @@ hist_log_word_count <- ggplot(data, aes(x = log_word_count)) +
 grid.arrange(hist_word_count, hist_log_word_count, ncol = 2)
 ```
 
-```{r}
+```{r include=FALSE}
 tidy_answer <- data %>% 
   mutate(row_id = row_number()) %>% 
   select(row_id, Answer) %>% 
   unnest_tokens(word, Answer)
 ```
 
-```{r}
+```{r include=FALSE}
 tidy_answer <- tidy_answer %>% 
   mutate(word = tolower(word)) %>% 
   mutate(word = gsub("[[:punct:]]", "", word))
 ```
 
-```{r}
+```{r include=FALSE}
 tidy_answer <- tidy_answer %>% anti_join(stop_words)
 ```
 
-```{r}
+```{r include=FALSE}
 word_frequencies <- tidy_answer %>%
   group_by(row_id, word) %>%
   tally() %>%
   ungroup()
 ```
 
-```{r}
+```{r include=FALSE}
 total_word_frequencies <- word_frequencies %>%
   group_by(word) %>%
   summarize(total_frequency = sum(n))
 ```
 
-```{r}
+```{r echo=FALSE}
 answer_word_frequencies <- ggplot(total_word_frequencies, aes(x = log(total_frequency))) +
   geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
   labs(
@@ -96,16 +108,17 @@ answer_word_frequencies <- ggplot(total_word_frequencies, aes(x = log(total_freq
 answer_word_frequencies
 ```
 
-```{r}
+```{r echo=FALSE}
 threshold <- total_word_frequencies %>% 
   pull(total_frequency) %>%
   quantile(0.95)
 
 top_words <- total_word_frequencies %>% 
   filter(total_frequency >= threshold)
+head(top_words, 15)
 ```
 
-```{r}
+```{r include=FALSE}
 dtm <- tidy_answer %>%
   filter(word %in% top_words$word) %>% 
   count(row_id, word) %>%
@@ -116,16 +129,16 @@ dtm <- as.matrix(dtm)
 cooc_matrix <- t(dtm) %*% dtm
 ```
 
-```{r}
+```{r include=FALSE}
 diag(cooc_matrix) <- 0
 cooc_matrix[upper.tri(cooc_matrix)] <- 0
 ```
 
-```{r}
+```{r include=FALSE}
 tmp <- rownames(cooc_matrix) <- colnames(cooc_matrix)
 ```
 
-```{r}
+```{r echo=FALSE}
 ind <- which(cooc_matrix >= threshold, arr.ind = T)
 freqs <- cooc_matrix[ind]
 
@@ -134,9 +147,10 @@ word_pairs <- cbind(tmp[ind[,1]],tmp[ind[,2]],freqs) %>%
 colnames(word_pairs) <- c("Word1","Word2","Frequency")
 
 word_pairs <- word_pairs[order(freqs, decreasing = T), ]
+head(word_pairs, 15)
 ```
 
-```{r}
+```{r echo=FALSE}
 Y_positive = data$positive
 X = as.data.frame(cbind(dtm, Y_positive))
 lm1 = glm(Y_positive ~ ., family = "binomial", data = X)
@@ -144,7 +158,7 @@ summary(lm1)
 plot(lm1, which = 1:6)
 ```
 
-```{r}
+```{r echo=FALSE}
 Y_negative = data$negative
 X = as.data.frame(cbind(dtm, Y_negative))
 lm2 = glm(Y_negative ~ ., family = "binomial", data = X)
